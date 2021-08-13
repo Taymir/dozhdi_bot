@@ -14,8 +14,9 @@ import time
 
 def main():
     #url = "https://yandex.ru/pogoda/moscow/maps/nowcast?le_Lightning=1"
-    #url = "https://yandex.ru/pogoda/moscow/maps/nowcast?ll=37.617011_55.745857&z=10&le_Lightning=1"
-    url = "https://yandex.ru/pogoda/maps/nowcast?le_Lightning=1&lat=55.91320191400199&lon=37.809271578125006&ll=30.392958_59.911052&z=10"
+    #url = "https://yandex.ru/pogoda/moscow/maps/nowcast?ll=37.617011_55.745857&z=10&le_Lightning=1" #MSK
+    #url = "https://yandex.ru/pogoda/maps/nowcast?le_Lightning=1&lat=55.91320191400199&lon=37.809271578125006&ll=30.392958_59.911052&z=10" #SPB
+    url = "https://yandex.ru/pogoda/moscow/maps/nowcast?le_Lightning=1&ll=44.996399_53.127358&z=10"  # Пенза
     driver = webdriver.Firefox()
     driver.set_window_rect(0, 0, 1000, 1000)
     driver.get(url)
@@ -24,7 +25,8 @@ def main():
     elem = WebDriverWait(driver, 50).until(
         EC.presence_of_element_located((By.CLASS_NAME, "tiled-nowcast-loader"))
     )
-
+    driver.execute_script('document.getElementsByClassName("adv_pos_popup")[0].hidden = true')
+    driver.execute_script('document.getElementsByClassName("weather-maps__layer-buttons")[0].style = {"display": "none'}')
     time.sleep(5)
     elem = driver.find_element_by_tag_name("body")
     imgs = []
@@ -33,7 +35,7 @@ def main():
         time.sleep(0.2)
         shot = driver.get_screenshot_as_png()
         img = Image.open(BytesIO(shot))
-        roi = (400, 160, 400+520, 160+600)
+        roi = (400, 160, 400+520, 160+700)
         img = img.crop(roi)
         #img.save(f"var/{i}.png")
         imgs.append(img)
