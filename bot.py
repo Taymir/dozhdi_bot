@@ -52,22 +52,20 @@ async def test2_command(message: types.Message):
 
 
 @dp.message_handler(commands='test3')
-async def test2_command(message: types.Message):
+async def test3_command(message: types.Message):
     save_flag = True
-    send_flag = True
-    coords = (55.8974, 37.538481)  #MSK
-    coords = (59.911052, 30.392958)  #SPB
-    #coords = (48.708177, 44.526469)  #Волгоград
+    #coords = (55.8974, 37.538481)  #MSK
+    #coords = (59.911052, 30.392958)  #SPB
+    coords = (48.708177, 44.526469)  #Волгоград
 
-    gif = await dozhdi_parser.request_gif(*coords)
+    mp4_file = await dozhdi_parser.request_mp4(*coords)
 
-    if send_flag:
-        file = types.input_file.InputFile(gif, filename="weather.gif")
-        await message.reply_animation(file)
-    elif save_flag:
-        with open('var/anim.gif', 'wb') as out:
-            out.write(gif.read())
-        await message.answer('done')
+    file = types.input_file.InputFile(mp4_file)
+    await message.reply_animation(file)
+    if not save_flag:
+        await dozhdi_parser.remove_file(mp4_file)
+
+    await message.answer('done')
 
 
 @dp.message_handler(content_types=['location'])
