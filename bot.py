@@ -1,4 +1,6 @@
+import datetime
 import logging
+import time
 
 import aiogram.types.reply_keyboard
 
@@ -6,6 +8,7 @@ import settings
 from aiogram import Bot, Dispatcher, executor, types
 import pymongo, pymongo.errors
 import dozhdi_parser
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=settings.token)
@@ -53,30 +56,100 @@ async def test2_command(message: types.Message):
 
 @dp.message_handler(commands='test3')
 async def test3_command(message: types.Message):
-    save_flag = True
+    save_flag = False
     #coords = (55.8974, 37.538481)  #MSK
-    #coords = (59.911052, 30.392958)  #SPB
-    coords = (48.708177, 44.526469)  #Волгоград
+    coords = (59.911052, 30.392958)  #SPB
+    #coords = (48.708177, 44.526469)  #Волгоград
+    lat, lon = coords
+
+    # Поиск схожего запроса
+    found_request = db.requests.find_one({
+        'location': {
+            '$near': {
+                '$geometry': {
+                    'type': 'Point',
+                    'coordinates': list(coords)[::-1]
+                },
+                '$maxDistance': 10000
+            }
+        },
+        'datetime': {
+            '$gte': datetime.datetime.now() - datetime.timedelta(minutes=15)
+        }
+    }, sort=[('datetime', pymongo.DESCENDING)])
+    # Если найден с другим статусом, то вернуть его
+    if found_request:
+        if found_request['status'] == 'recieved':
+            file = found_request['mp4_file']
+            url = dozhdi_parser.make_url(*coords)
+            msg = await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>",
+                                                parse_mode='HTML')
+            return #TODO: Refactor: extract same code to one method
+        else:
+            # Если найден со статусом processing, to wait
+            reply = "<i>Ждем догрузки информации по координатам: {}, {}...</i>".format(*coords)
+            tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
+
+            await asyncio.sleep(15)
+            found_request = db.requests.find_one({'_id': found_request['_id']})
+            if found_request['status'] == 'recieved':
+                file = found_request['mp4_file']
+                url = dozhdi_parser.make_url(*coords)
+                msg = await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>",
+                                                    parse_mode='HTML')
+                return
+
+    # Иначе инициировать новый запрос со статусом processing
+    start = time.time()
+    inserted_doc = db.requests.insert_one({
+        'user_id': message.from_user.id,
+        'location': {'type': 'Point', 'coordinates': [lon, lat]},
+        'mp4_file': None,
+        'status': 'processing',
+        'datetime': datetime.datetime.now()
+    })
+
+    reply = "<i>Проверяем осадки по координатам: {}, {}...</i>".format(*coords)
+    tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
 
     mp4_file = await dozhdi_parser.request_mp4(*coords)
+    url = dozhdi_parser.make_url(*coords)
 
-    file = types.input_file.InputFile(mp4_file)
-    await message.reply_animation(file)
+    file = types.input_file.InputFile(mp4_file, filename="weather.mp4")
+
+    msg = await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>", parse_mode='HTML')
     if not save_flag:
         await dozhdi_parser.remove_file(mp4_file)
 
-    await message.answer('done')
+    # Здесь поменять статус на recieved
+    db.requests.update_one({'_id': inserted_doc.inserted_id}, {
+        '$set': {
+            'mp4_file': msg.animation.file_id,
+            'status': 'recieved',
+        }
+    })
+
+    await tmp_msg.delete()
+    end = time.time()
+    print(f"Время выполнения: {end-start}")
 
 
 @dp.message_handler(content_types=['location'])
 async def handle_location(message: types.Message):
+    save_flag = True
     lat = message.location.latitude
     lon = message.location.longitude
+
     reply = "Проверяем осадки по координатам: latitude:  {}\nlongitude: {}".format(lat, lon)
-    await message.answer(reply, reply_markup=types.ReplyKeyboardRemove())
-    gif = await dozhdi_parser.request_gif(lat, lon)
-    file = types.input_file.InputFile(gif, filename="weather.gif")
+    tmp_msg = await message.answer(reply, reply_markup=types.ReplyKeyboardRemove())
+
+    mp4_file = await dozhdi_parser.request_mp4(lat, lon)
+    file = types.input_file.InputFile(mp4_file, filename="weather.mp4")
+    if not save_flag:
+        await dozhdi_parser.remove_file(mp4_file)
+
     await message.reply_animation(file)
+    await tmp_msg.delete()
 
 
 def main():
@@ -84,6 +157,7 @@ def main():
         executor.start_polling(dp, skip_updates=True)
     except KeyboardInterrupt:
         print("Received exit, exiting")
+
 
 
 if __name__ == '__main__':

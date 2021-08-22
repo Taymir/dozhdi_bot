@@ -9,14 +9,24 @@ import numpy as np
 from selenium.webdriver.firefox.options import Options
 import os
 import time
+import asyncio
 
 
-async def request_mp4(lat: float, lon: float):
+def make_url(lat: float, lon: float):
     url = f"https://yandex.ru/pogoda/maps/nowcast?le_Lightning=1&ll={lon}_{lat}&z=10"
+    return url
+
+
+#TODO: Возвращать текстом описание  погоды?
+async def request_mp4(lat: float, lon: float):
+    start = time.time()
     options = Options()
     options.add_argument('--headless')
     driver = webdriver.Firefox(options=options)
     driver.set_window_rect(0, 0, 1000, 1000)
+
+    url = make_url(lat, lon)
+
     driver.get(url)
 
     elem = WebDriverWait(driver, 50).until(
@@ -26,7 +36,7 @@ async def request_mp4(lat: float, lon: float):
     driver.execute_script(
         'document.getElementsByClassName("weather-maps__layer-buttons")[0].style = {"display": "none"}')
     driver.execute_script('document.getElementsByClassName("ymaps-2-1-78-copyrights-pane")[0].hidden = true')
-    time.sleep(6)
+    await asyncio.sleep(6)
     elem = driver.find_element_by_tag_name("body")
 
     x = 380  # 400
@@ -37,27 +47,26 @@ async def request_mp4(lat: float, lon: float):
     random_name = str(random.randint(10000, 99999)) + ".mp4"
     filename = os.path.join('var', random_name)
     videodims = (w, h)
+
     fourcc = cv2.VideoWriter_fourcc(*'avc1')
     video = cv2.VideoWriter(filename, fourcc, 2, videodims)
-    for i in range(40):
-        if i % 2 == 0:
-            time.sleep(0.2)
-        else:
-            time.sleep(0.1)
+
+    for i in range(10):
+        await asyncio.sleep(0.5)
         shot_bytes = driver.get_screenshot_as_png()
         nparr = np.frombuffer(shot_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         img = img[y:y + h, x:x + w]
 
         video.write(np.array(img))
-        if i % 2 == 0:
-            elem.send_keys(Keys.ARROW_RIGHT)
+        elem.send_keys(Keys.ARROW_RIGHT)
     video.release()
-    driver.close()
 
+    driver.close()
     return filename
 
 
 async def remove_file(filename):
     os.remove(filename)
+
 
