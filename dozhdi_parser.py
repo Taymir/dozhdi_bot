@@ -17,9 +17,7 @@ def make_url(lat: float, lon: float):
     return url
 
 
-#TODO: Возвращать текстом описание  погоды?
 async def request_mp4(lat: float, lon: float):
-    start = time.time()
     options = Options()
     options.add_argument('--headless')
     driver = webdriver.Firefox(options=options)

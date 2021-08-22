@@ -56,7 +56,7 @@ async def test2_command(message: types.Message):
 
 @dp.message_handler(commands='test3')
 async def test3_command(message: types.Message):
-    save_flag = False
+    save_flag = True
     #coords = (55.8974, 37.538481)  #MSK
     coords = (59.911052, 30.392958)  #SPB
     #coords = (48.708177, 44.526469)  #Волгоград
@@ -80,11 +80,8 @@ async def test3_command(message: types.Message):
     # Если найден с другим статусом, то вернуть его
     if found_request:
         if found_request['status'] == 'recieved':
-            file = found_request['mp4_file']
-            url = dozhdi_parser.make_url(*coords)
-            msg = await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>",
-                                                parse_mode='HTML')
-            return #TODO: Refactor: extract same code to one method
+            await reply_weather_animation(coords, found_request['mp4_file'], message)
+            return
         else:
             # Если найден со статусом processing, to wait
             reply = "<i>Ждем догрузки информации по координатам: {}, {}...</i>".format(*coords)
@@ -93,11 +90,9 @@ async def test3_command(message: types.Message):
             await asyncio.sleep(15)
             found_request = db.requests.find_one({'_id': found_request['_id']})
             if found_request['status'] == 'recieved':
-                file = found_request['mp4_file']
-                url = dozhdi_parser.make_url(*coords)
-                msg = await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>",
-                                                    parse_mode='HTML')
+                await reply_weather_animation(coords, found_request['mp4_file'], message)
                 return
+            await tmp_msg.delete()
 
     # Иначе инициировать новый запрос со статусом processing
     start = time.time()
@@ -113,11 +108,10 @@ async def test3_command(message: types.Message):
     tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
 
     mp4_file = await dozhdi_parser.request_mp4(*coords)
-    url = dozhdi_parser.make_url(*coords)
-
     file = types.input_file.InputFile(mp4_file, filename="weather.mp4")
 
-    msg = await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>", parse_mode='HTML')
+    msg = await reply_weather_animation(coords, found_request['mp4_file'], message)
+
     if not save_flag:
         await dozhdi_parser.remove_file(mp4_file)
 
@@ -132,6 +126,12 @@ async def test3_command(message: types.Message):
     await tmp_msg.delete()
     end = time.time()
     print(f"Время выполнения: {end-start}")
+
+
+async def reply_weather_animation(coords, file, message):
+    url = dozhdi_parser.make_url(*coords)
+    return await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>",
+                                         parse_mode='HTML')
 
 
 @dp.message_handler(content_types=['location'])
@@ -157,7 +157,6 @@ def main():
         executor.start_polling(dp, skip_updates=True)
     except KeyboardInterrupt:
         print("Received exit, exiting")
-
 
 
 if __name__ == '__main__':
