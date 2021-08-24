@@ -22,7 +22,6 @@ async def request_mp4(lat: float, lon: float):
     options.add_argument('--headless')
     driver = webdriver.Firefox(options=options)
     driver.set_window_rect(0, 0, 1000, 1000)
-
     url = make_url(lat, lon)
 
     driver.get(url)
@@ -55,8 +54,8 @@ async def request_mp4(lat: float, lon: float):
         nparr = np.frombuffer(shot_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         img = img[y:y + h, x:x + w]
-
-        video.write(np.array(img))
+        img = np.array(img)
+        video.write(img)
         elem.send_keys(Keys.ARROW_RIGHT)
     video.release()
 

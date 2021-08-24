@@ -48,15 +48,12 @@ async def test_command(message: types.Message):
     await message.reply("Скиньте геопозицию", reply_markup=markup)
 
 
-@dp.message_handler(commands='test2')
-async def test2_command(message: types.Message):
-    markup = types.reply_keyboard.ReplyKeyboardRemove()
-    await message.reply("Кнопка убрана", reply_markup=markup)
 
 
 @dp.message_handler(commands='test3')
 async def test3_command(message: types.Message):
-    save_flag = True
+    save_flag = False
+    cache_requests = True
     #coords = (55.8974, 37.538481)  #MSK
     coords = (59.911052, 30.392958)  #SPB
     #coords = (48.708177, 44.526469)  #Волгоград
@@ -77,6 +74,10 @@ async def test3_command(message: types.Message):
             '$gte': datetime.datetime.now() - datetime.timedelta(minutes=15)
         }
     }, sort=[('datetime', pymongo.DESCENDING)])
+
+    if cache_requests:
+        found_request = None
+
     # Если найден с другим статусом, то вернуть его
     if found_request:
         if found_request['status'] == 'recieved':
@@ -84,7 +85,8 @@ async def test3_command(message: types.Message):
             return
         else:
             # Если найден со статусом processing, to wait
-            reply = "<i>Ждем догрузки информации по координатам: {}, {}...</i>".format(*coords)
+            reply = "<i>Получаем данные об осадках. Минутку...</i>"
+            logging.debug("Waiting for db cache")
             tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
 
             await asyncio.sleep(15)
@@ -104,13 +106,13 @@ async def test3_command(message: types.Message):
         'datetime': datetime.datetime.now()
     })
 
-    reply = "<i>Проверяем осадки по координатам: {}, {}...</i>".format(*coords)
+    reply = "<i>Получаем данные об осадках. Минутку...</i>"
     tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
 
     mp4_file = await dozhdi_parser.request_mp4(*coords)
     file = types.input_file.InputFile(mp4_file, filename="weather.mp4")
 
-    msg = await reply_weather_animation(coords, found_request['mp4_file'], message)
+    msg = await reply_weather_animation(coords, file, message)
 
     if not save_flag:
         await dozhdi_parser.remove_file(mp4_file)
@@ -125,7 +127,7 @@ async def test3_command(message: types.Message):
 
     await tmp_msg.delete()
     end = time.time()
-    print(f"Время выполнения: {end-start}")
+    logging.debug(f"Время выполнения: {end-start}")
 
 
 async def reply_weather_animation(coords, file, message):
