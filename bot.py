@@ -36,29 +36,56 @@ async def start_command(message: types.Message):
 
 @dp.message_handler(commands=['help'])
 async def help_command(message: types.Message):
+    markup = types.reply_keyboard.ReplyKeyboardMarkup([
+        [
+            types.reply_keyboard.KeyboardButton(text="Москва"),
+            types.reply_keyboard.KeyboardButton(text="Санкт-Петербург")
+         ],
+        [types.reply_keyboard.KeyboardButton(text="Отправить геопозицию", request_location=True)]
+    ])
+
     await message.reply("Добро пожаловать! \n"
-                        f"Отправьте своё местоположение, чтобы получить карту осадков")
-
-
-@dp.message_handler(commands='test')
-async def test_command(message: types.Message):
-    markup = types.reply_keyboard.ReplyKeyboardMarkup([[
-        types.reply_keyboard.KeyboardButton(text="Отправить геопозицию", request_location=True),
-    ]])
-    await message.reply("Скиньте геопозицию", reply_markup=markup)
-
-
+                        f"Отправьте своё местоположение, чтобы получить карту осадков", reply_markup=markup)
 
 
 @dp.message_handler(commands='test3')
 async def test3_command(message: types.Message):
-    save_flag = False
-    cache_requests = True
     #coords = (55.8974, 37.538481)  #MSK
     coords = (59.911052, 30.392958)  #SPB
     #coords = (48.708177, 44.526469)  #Волгоград
-    lat, lon = coords
 
+    await weather_request(coords, message)
+
+
+@dp.message_handler(content_types=['location'])
+async def handle_location(message: types.Message):
+    save_flag = True
+    lat = message.location.latitude
+    lon = message.location.longitude
+    coords = (lat, lon)
+
+    db.users.update_one({
+        'user_id': message.from_user.id
+    }, {
+        '$set': {
+            'location': list(coords)[::-1]
+        }
+    })
+    await weather_request(coords, message)
+
+
+@dp.message_handler()
+async def general_message(message: types.Message):
+    city = message.text
+    found = db.cities.find_one({'city': city})
+    if not found:
+        return await message.reply(f"Город {city} не найден. Попробуйте скинуть геолокацию")
+
+    coords = found['location'][::-1]  # В БД координаты хранятся в обратном порядке: [lon, lat]
+    await weather_request(coords, message)
+
+
+async def weather_request(coords, message):
     # Поиск схожего запроса
     found_request = db.requests.find_one({
         'location': {
@@ -75,49 +102,45 @@ async def test3_command(message: types.Message):
         }
     }, sort=[('datetime', pymongo.DESCENDING)])
 
-    if cache_requests:
+    if not settings.cache_requests:
         found_request = None
 
-    # Если найден с другим статусом, то вернуть его
+    # Если найден, то вернуть его
     if found_request:
         if found_request['status'] == 'recieved':
-            await reply_weather_animation(coords, found_request['mp4_file'], message)
-            return
+            return await reply_weather_animation(coords, found_request['mp4_file'], message)
         else:
             # Если найден со статусом processing, to wait
             reply = "<i>Получаем данные об осадках. Минутку...</i>"
             logging.debug("Waiting for db cache")
-            tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
+            tmp_msg = await message.reply(reply, parse_mode='HTML')
 
-            await asyncio.sleep(15)
+            await asyncio.sleep(20)
+            # Повторно проверяем, обновился ли статус
             found_request = db.requests.find_one({'_id': found_request['_id']})
             if found_request['status'] == 'recieved':
-                await reply_weather_animation(coords, found_request['mp4_file'], message)
-                return
+                return await reply_weather_animation(coords, found_request['mp4_file'], message)
             await tmp_msg.delete()
 
     # Иначе инициировать новый запрос со статусом processing
     start = time.time()
     inserted_doc = db.requests.insert_one({
         'user_id': message.from_user.id,
-        'location': {'type': 'Point', 'coordinates': [lon, lat]},
+        'location': {'type': 'Point', 'coordinates': list(coords)[::-1]},
         'mp4_file': None,
         'status': 'processing',
         'datetime': datetime.datetime.now()
     })
 
     reply = "<i>Получаем данные об осадках. Минутку...</i>"
-    tmp_msg = await message.reply(reply, reply_markup=types.ReplyKeyboardRemove(), parse_mode='HTML')
-
+    tmp_msg = await message.reply(reply, parse_mode='HTML')
     mp4_file = await dozhdi_parser.request_mp4(*coords)
     file = types.input_file.InputFile(mp4_file, filename="weather.mp4")
-
     msg = await reply_weather_animation(coords, file, message)
-
-    if not save_flag:
+    if not settings.save_flag:
         await dozhdi_parser.remove_file(mp4_file)
 
-    # Здесь поменять статус на recieved
+    # поменять статус на recieved
     db.requests.update_one({'_id': inserted_doc.inserted_id}, {
         '$set': {
             'mp4_file': msg.animation.file_id,
@@ -127,31 +150,13 @@ async def test3_command(message: types.Message):
 
     await tmp_msg.delete()
     end = time.time()
-    logging.debug(f"Время выполнения: {end-start}")
+    logging.debug(f"Время выполнения: {end - start}")
 
 
 async def reply_weather_animation(coords, file, message):
     url = dozhdi_parser.make_url(*coords)
     return await message.reply_animation(file, caption=f"<a href='{url}'>Посмотреть в браузере</a>",
                                          parse_mode='HTML')
-
-
-@dp.message_handler(content_types=['location'])
-async def handle_location(message: types.Message):
-    save_flag = True
-    lat = message.location.latitude
-    lon = message.location.longitude
-
-    reply = "Проверяем осадки по координатам: latitude:  {}\nlongitude: {}".format(lat, lon)
-    tmp_msg = await message.answer(reply, reply_markup=types.ReplyKeyboardRemove())
-
-    mp4_file = await dozhdi_parser.request_mp4(lat, lon)
-    file = types.input_file.InputFile(mp4_file, filename="weather.mp4")
-    if not save_flag:
-        await dozhdi_parser.remove_file(mp4_file)
-
-    await message.reply_animation(file)
-    await tmp_msg.delete()
 
 
 def main():
