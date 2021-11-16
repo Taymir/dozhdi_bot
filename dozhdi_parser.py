@@ -29,9 +29,10 @@ async def request_mp4(lat: float, lon: float):
     elem = WebDriverWait(driver, 50).until(
         EC.presence_of_element_located((By.CLASS_NAME, "tiled-nowcast-loader"))
     )
-    driver.execute_script('document.getElementsByClassName("adv_pos_popup")[0].hidden = true')
+    driver.execute_script('document.getElementsByClassName("adv_pos_popup")[0].hidden = true') #hide advertisement
+    driver.execute_script('document.getElementsByClassName("sc-bdnylx")[0].hidden = true') #hide cookies popup
     driver.execute_script(
-        'document.getElementsByClassName("weather-maps__layer-buttons")[0].style = {"display": "none"}')
+        'document.getElementsByClassName("weather-maps__layer-buttons")[0].style = {"display": "none"}') #hide buttons
     driver.execute_script('document.getElementsByClassName("ymaps-2-1-78-copyrights-pane")[0].hidden = true')
     await asyncio.sleep(6)
     elem = driver.find_element_by_tag_name("body")
